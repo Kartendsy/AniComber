@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AniComber — Character Animation Combiner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ["system-ui", "-apple-system", "Segoe UI", "sans-serif"] },
+        },
+      },
+    };
+  </script>
+  <style type="text/tailwindcss">
+    .btn { @apply mt-2 w-full rounded-lg px-3 py-2 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45; }
+    .btn-primary { @apply btn bg-indigo-600; }
+    .btn-secondary { @apply btn bg-neutral-700; }
+    .btn-mini { @apply flex-1 rounded-md bg-neutral-700 px-2 py-1.5 text-[11px] font-medium text-white transition hover:bg-neutral-600; }
+    .field { @apply mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-[13px] text-white focus:border-indigo-500 focus:outline-none; }
+    .lbl { @apply mt-2.5 block text-[13px] text-neutral-300; }
+    .sec-title { @apply mb-1 mt-4 text-[13px] font-bold uppercase tracking-wide text-indigo-300; }
+    .icon-btn { @apply rounded-lg bg-neutral-800 px-2.5 py-1.5 text-base leading-none transition hover:bg-neutral-700; }
+    .tl-btn { @apply rounded-lg bg-neutral-700 px-2 py-1.5 text-sm leading-none transition hover:bg-neutral-600 sm:px-3 sm:py-2; }
+    .tl-btn-main { @apply tl-btn bg-indigo-600 font-bold hover:bg-indigo-500; }
+  </style>
+  <style>
+    html, body { height: 100%; }
+    body { overscroll-behavior: none; }
+    #left, #right { transition: transform .3s ease; }
+    #left.closed { transform: translateX(-120%); }
+    #right.closed { transform: translateX(120%); }
+    #animList::-webkit-scrollbar, #left::-webkit-scrollbar { width: 8px; }
+    #animList::-webkit-scrollbar-thumb, #left::-webkit-scrollbar-thumb { background: #525252; border-radius: 8px; }
+    .anim-item {
+      padding: 9px 10px; margin: 5px 0; border-radius: 10px; background: #2b2b33;
+      font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    }
+    .anim-item:hover { background: #3a3a46; }
+    .anim-item.playing { outline: 2px solid #576ff6; color: #9db4ff; }
+    .anim-item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .anim-item .meta { font-size: 10px; color: #999; display: block; }
+    .anim-item .compat-ok { color: #69f0ae; }
+    .anim-item .compat-warn { color: #ff8a65; }
+    .anim-item .del { color: #ff5252; cursor: pointer; font-weight: bold; padding: 0 4px; flex-shrink: 0; }
+    .anim-item .del:hover { color: #ff8a80; }
+    .anim-item.stop { background: #b71c1c; justify-content: center; font-weight: 600; }
+    .rename-input { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #576ff6; background: #111; color: #fff; }
+    input[type="range"] { accent-color: #4f46e5; }
+    input[type="checkbox"] { accent-color: #4f46e5; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body class="overflow-hidden bg-neutral-950 font-sans text-neutral-100">
+
+  <!-- Top bar -->
+  <header class="fixed inset-x-0 top-0 z-30 flex items-center gap-2 bg-neutral-900/90 px-3 py-2 shadow-lg backdrop-blur">
+    <button id="leftToggle" class="icon-btn" title="Control panel">☰</button>
+    <h1 class="min-w-0 flex-1 truncate text-sm font-bold sm:text-base">⛹ AniComber</h1>
+    <span id="headCount" class="hidden rounded-full bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-300 sm:inline">0 clips</span>
+    <button id="rightToggle" class="icon-btn" title="Animation list">🎬</button>
+  </header>
+
+  <!-- Left: controls -->
+  <aside id="left" class="fixed bottom-24 left-2 top-14 z-20 w-[300px] max-w-[86vw] overflow-y-auto rounded-2xl bg-neutral-900/95 p-4 shadow-2xl">
+    <p class="text-[11px] leading-relaxed text-neutral-400">Upload 1 character + many animations, preview them, then export as a single <b>.glb / .gltf</b> file. You can also <b>drag &amp; drop</b> files onto the screen.</p>
+
+    <h4 class="sec-title">1. Main Character</h4>
+    <label class="lbl" for="charInput">Character file (.fbx / .glb / .gltf)</label>
+    <input type="file" id="charInput" accept=".fbx,.glb,.gltf" class="mt-1 w-full text-xs text-neutral-300" />
+    <button id="sampleBtn" class="btn-secondary">🧍 Load Sample (Soldier)</button>
+    <div id="compatInfo" class="mt-1.5 break-words text-xs text-amber-300"></div>
+
+    <h4 class="sec-title">2. Animation Files</h4>
+    <label class="lbl" for="animInput">You can select multiple files (.fbx / .glb / .gltf)</label>
+    <input type="file" id="animInput" accept=".fbx,.glb,.gltf" multiple class="mt-1 w-full text-xs text-neutral-300" />
+
+    <h4 class="sec-title">3. Texture (optional)</h4>
+    <input type="file" id="texInput" accept=".png,.jpg,.jpeg" class="mt-1 w-full text-xs text-neutral-300" />
+
+    <h4 class="sec-title">4. Edit Selected Clip</h4>
+    <select id="clipSelect" class="field"></select>
+    <div class="flex gap-2">
+      <div class="flex-1">
+        <label class="lbl" for="trimStart">Start (s)</label>
+        <input type="number" id="trimStart" step="0.05" min="0" value="0" class="field" />
+      </div>
+      <div class="flex-1">
+        <label class="lbl" for="trimEnd">End (s)</label>
+        <input type="number" id="trimEnd" step="0.05" min="0" value="0" class="field" />
+      </div>
+    </div>
+    <label class="lbl" for="speed">Speed: <span id="speedVal" class="font-semibold text-white">1.00x</span></label>
+    <input type="range" id="speed" min="0.1" max="3" step="0.05" value="1" class="w-full" />
+    <label class="lbl flex items-center gap-2"><input type="checkbox" id="loopChk" checked class="h-4 w-4" /> Loop (repeat)</label>
+
+    <h4 class="sec-title">5. View &amp; Project</h4>
+    <label class="lbl flex items-center gap-2"><input type="checkbox" id="skeletonChk" class="h-4 w-4" /> Show skeleton (bones)</label>
+    <div class="flex gap-2">
+      <button id="saveProjBtn" class="btn-secondary">💾 Save</button>
+      <button id="loadProjBtn" class="btn-secondary">📂 Load</button>
+    </div>
+    <input type="file" id="loadProjInput" accept=".json" class="hidden" />
+
+    <h4 class="sec-title">6. Export</h4>
+    <button id="exportGlbBtn" class="btn-primary">⬇ Export .GLB (binary)</button>
+    <button id="exportGltfBtn" class="btn-secondary">⬇ Export .GLTF (json)</button>
+    <button id="clearBtn" class="btn-secondary">🗑 Reset all</button>
+
+    <p id="status" class="mt-2 min-h-[18px] break-words text-xs text-green-400">No model yet.</p>
+    <p class="mt-1 text-[11px] leading-relaxed text-neutral-500">
+      Inspired by
+      <a href="https://github.com/nilooy/character-animation-combiner" target="_blank" rel="noopener" class="text-indigo-300">nilooy/character-animation-combiner</a>.<br />
+      Click = play • Double-click = rename • ☑ = include in export.
+    </p>
+  </aside>
+
+  <!-- Right: animation list -->
+  <aside id="right" class="fixed bottom-24 right-2 top-14 z-20 flex w-[310px] max-w-[86vw] flex-col overflow-hidden rounded-2xl bg-neutral-900/95 shadow-2xl">
+    <div class="bg-neutral-800 px-3.5 py-3">
+      <h5 id="animTitle" class="text-[15px] font-bold">Animations (0)</h5>
+      <p id="exportCount" class="mt-0.5 text-[11px] text-neutral-400">Export: 0 clips checked</p>
+      <div class="mt-2 flex gap-1.5">
+        <button id="selectAllBtn" class="btn-mini">Select all</button>
+        <button id="deselectAllBtn" class="btn-mini">Clear</button>
+      </div>
+    </div>
+    <div id="animList" class="flex-1 overflow-y-auto p-1.5"></div>
+  </aside>
+
+  <!-- Bottom: timeline -->
+  <div id="timeline" class="fixed bottom-2 left-1/2 z-20 flex w-[min(640px,96vw)] -translate-x-1/2 items-center gap-1.5 rounded-2xl bg-neutral-900/95 px-2.5 py-2 shadow-2xl sm:gap-2">
+    <button id="stopBtn" class="tl-btn" title="Stop">⏹</button>
+    <button id="stepBackBtn" class="tl-btn" title="Back 1 frame">⏮</button>
+    <button id="playPauseBtn" class="tl-btn-main" title="Play/Pause">⏸</button>
+    <button id="stepFwdBtn" class="tl-btn" title="Forward 1 frame">⏭</button>
+    <input type="range" id="scrub" min="0" max="1000" value="0" class="min-w-0 flex-1" />
+    <span id="timeLabel" class="shrink-0 text-right text-[11px] text-neutral-300 sm:min-w-[110px] sm:text-xs">0.00 / 0.00s</span>
+  </div>
+
+  <div id="dropOverlay" class="pointer-events-none fixed inset-0 z-40 hidden items-center justify-center border-[3px] border-dashed border-indigo-300 bg-indigo-600/25 p-6 text-center text-xl text-white">
+    <span>📥 Drop files here<br /><small class="text-sm">first file = character (if none yet), the rest = animations</small></span>
+  </div>
+  <div id="loading" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 text-lg text-white">⏳ Loading...</div>
+
+  <script>
+    // Drawer toggles (mobile-first): panels start closed on small screens
+    (function () {
+      const left = document.getElementById("left");
+      const right = document.getElementById("right");
+      const overlay = document.getElementById("dropOverlay");
+      if (window.innerWidth < 768) {
+        left.classList.add("closed");
+        right.classList.add("closed");
+      }
+      document.getElementById("leftToggle").addEventListener("click", () => {
+        left.classList.toggle("closed");
+        if (window.innerWidth < 768) right.classList.add("closed");
+      });
+      document.getElementById("rightToggle").addEventListener("click", () => {
+        right.classList.toggle("closed");
+        if (window.innerWidth < 768) left.classList.add("closed");
+      });
+      // Drop overlay uses flex when active (Tailwind: hidden -> flex)
+      const obs = new MutationObserver(() => {
+        if (overlay.style.display === "flex") {
+          overlay.classList.remove("hidden");
+          overlay.classList.add("flex");
+        } else {
+          overlay.classList.add("hidden");
+          overlay.classList.remove("flex");
+        }
+      });
+      obs.observe(overlay, { attributes: true, attributeFilter: ["style"] });
+    })();
+  </script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
